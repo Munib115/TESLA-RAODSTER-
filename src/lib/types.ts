@@ -86,6 +86,7 @@ export interface TelemetryData {
   suction: boolean;
   lifting: boolean;
   boosting: boolean;
+  reversing?: boolean;
   pitching: number;
 }
 
@@ -94,6 +95,7 @@ export interface InputControls {
   back: boolean;
   lift: boolean;
   boost: boolean;
+  reverseBoost?: boolean;
   ccw: boolean;
   cw: boolean;
 }

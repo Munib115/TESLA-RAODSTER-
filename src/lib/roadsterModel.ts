@@ -9,13 +9,14 @@ export interface RoadsterCar {
   wheels: THREE.Mesh[];
   liftCones: ThrusterCone[];
   boostCone: ThrusterCone;
+  reverseCone?: ThrusterCone;
   brakeLight: THREE.Mesh;
   headlight: THREE.Mesh;
   headlightsLight?: THREE.SpotLight;
   taillightLight?: THREE.PointLight;
   thrusterLight?: THREE.PointLight;
   setPaintColor: (colorHex: string) => void;
-  updateThrusters: (lifting: boolean, boosting: boolean, dt: number, time: number) => void;
+  updateThrusters: (lifting: boolean, boosting: boolean, dt: number, time: number, reversing?: boolean) => void;
   updateWheelRotation: (rot: number) => void;
   setBraking?: (braking: boolean) => void;
   dispose: () => void;
@@ -264,10 +265,10 @@ export function createProceduralTeslaRoadster(bodyColorHex: string = '#c00f1c'):
     setPaintColor(colorHex: string) {
       bodyMaterial.color.set(colorHex);
     },
-    updateThrusters(lifting: boolean, boosting: boolean, dt: number, time: number) {
+    updateThrusters(lifting: boolean, boosting: boolean, dt: number, time: number, reversing: boolean = false) {
       boostCone.update(boosting ? 1.0 : 0.0, dt, time);
       liftCones.forEach(cone => cone.update(lifting ? 1.0 : 0.0, dt, time));
-      const targetIntensity = (lifting ? 7.0 : 0) + (boosting ? 9.0 : 0);
+      const targetIntensity = (lifting ? 7.0 : 0) + (boosting ? 9.0 : 0) + (reversing ? 9.0 : 0);
       thrusterLight.intensity = THREE.MathUtils.lerp(thrusterLight.intensity, targetIntensity, 0.3);
     },
     updateWheelRotation(rot: number) {
@@ -392,19 +393,26 @@ export function loadGlbRoadster(
       root.add(scene);
 
       const thrusterColor = new THREE.Color('#d6efff');
-      const boostCone = new ThrusterCone(new THREE.Vector3(2.35, 0.4, 0), new THREE.Vector3(1, 0, 0), thrusterColor);
+
+      // 1. Single Rear SpaceX Rocket Booster (behind license plate, pointing backward -X)
+      const boostCone = new ThrusterCone(new THREE.Vector3(-2.24, 0.35, 0), new THREE.Vector3(-1, 0, 0), thrusterColor);
       root.add(boostCone.mesh);
 
+      // 2. Front Nose Reverse / Airbrake Rocket Booster (pointing forward +X)
+      const reverseCone = new ThrusterCone(new THREE.Vector3(2.15, 0.32, 0), new THREE.Vector3(1, 0, 0), thrusterColor);
+      root.add(reverseCone.mesh);
+
+      // 3. Underfloor SpaceX Cold Gas Lift Thrusters
       const liftCones: ThrusterCone[] = [
-        new ThrusterCone(new THREE.Vector3(1.2, 0.2, 0.55), new THREE.Vector3(0, -1, 0), thrusterColor),
-        new ThrusterCone(new THREE.Vector3(1.2, 0.2, -0.55), new THREE.Vector3(0, -1, 0), thrusterColor),
-        new ThrusterCone(new THREE.Vector3(-1.2, 0.2, 0.55), new THREE.Vector3(0, -1, 0), thrusterColor),
-        new ThrusterCone(new THREE.Vector3(-1.2, 0.2, -0.55), new THREE.Vector3(0, -1, 0), thrusterColor)
+        new ThrusterCone(new THREE.Vector3(1.2, 0.16, 0.55), new THREE.Vector3(0, -1, 0), thrusterColor),
+        new ThrusterCone(new THREE.Vector3(1.2, 0.16, -0.55), new THREE.Vector3(0, -1, 0), thrusterColor),
+        new ThrusterCone(new THREE.Vector3(-1.2, 0.16, 0.55), new THREE.Vector3(0, -1, 0), thrusterColor),
+        new ThrusterCone(new THREE.Vector3(-1.2, 0.16, -0.55), new THREE.Vector3(0, -1, 0), thrusterColor)
       ];
       liftCones.forEach(c => root.add(c.mesh));
 
       const brakeLightMesh = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.026, 1.34), redMat);
-      brakeLightMesh.position.set(2.21, 0.4, 0);
+      brakeLightMesh.position.set(-2.21, 0.4, 0);
       brakeLightMesh.visible = false;
       root.add(brakeLightMesh);
 
@@ -416,13 +424,15 @@ export function loadGlbRoadster(
         wheels,
         liftCones,
         boostCone,
+        reverseCone,
         brakeLight: brakeLightMesh,
         headlight: dummyLight,
         setPaintColor(colorHex: string) {
           bodyMat.color.set(colorHex);
         },
-        updateThrusters(lifting: boolean, boosting: boolean, dt: number, time: number) {
+        updateThrusters(lifting: boolean, boosting: boolean, dt: number, time: number, reversing: boolean = false) {
           boostCone.update(boosting ? 1.0 : 0.0, dt, time);
+          reverseCone.update(reversing ? 1.0 : 0.0, dt, time);
           liftCones.forEach(cone => cone.update(lifting ? 1.0 : 0.0, dt, time));
         },
         updateWheelRotation(rot: number) {
@@ -435,6 +445,7 @@ export function loadGlbRoadster(
         },
         dispose() {
           boostCone.dispose();
+          reverseCone.dispose();
           liftCones.forEach(c => c.dispose());
         }
       });

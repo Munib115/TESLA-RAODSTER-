@@ -95,6 +95,7 @@ export const RoadsterGame: React.FC = () => {
     back: false,
     lift: false,
     boost: false,
+    reverseBoost: false,
     ccw: false,
     cw: false
   });
@@ -135,8 +136,14 @@ export const RoadsterGame: React.FC = () => {
   }, []);
 
   // Handle Touchpad Action Press
-  const handleTouchPress = useCallback((action: 'forward' | 'back' | 'lift' | 'boost' | 'ccw' | 'cw', pressed: boolean) => {
+  const handleTouchPress = useCallback((action: 'forward' | 'back' | 'lift' | 'boost' | 'reverseBoost' | 'ccw' | 'cw', pressed: boolean) => {
     inputsRef.current[action] = pressed;
+    if (action === 'ccw') {
+      inputsRef.current.reverseBoost = pressed;
+    }
+    if (action === 'cw') {
+      inputsRef.current.boost = pressed;
+    }
     soundRef.current?.ensure();
   }, []);
 
@@ -155,15 +162,15 @@ export const RoadsterGame: React.FC = () => {
     });
     renderer.setPixelRatio(pixelRatio);
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setClearColor('#000000', 1);
+    renderer.setClearColor('#050608', 1);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = settings.exposure;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    // 2. Scene & Fog Setup
+    // 2. Scene & Fog Setup (Soft atmospheric fog preserving visible terrain)
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2('#000000', 0.011);
+    scene.fog = new THREE.FogExp2('#050608', 0.0035);
 
     const camera = new THREE.PerspectiveCamera(35, container.clientWidth / container.clientHeight, 0.5, 600);
     cameraRef.current = camera;
@@ -196,9 +203,9 @@ export const RoadsterGame: React.FC = () => {
     const envTex = pmrem.fromScene(new THREE.Scene(), 0.04).texture;
     pmrem.dispose();
     scene.environment = envTex;
-    scene.environmentIntensity = 0.22;
+    scene.environmentIntensity = 0.28;
 
-    const ambientLight = new THREE.HemisphereLight('#9aa3ad', '#050505', 0.25);
+    const ambientLight = new THREE.HemisphereLight('#b2bac8', '#0b0e14', 0.42);
     scene.add(ambientLight);
 
     const rampSpot = new THREE.SpotLight('#e8eef5', 420, 0, 0.62, 1, 1.4);
@@ -212,18 +219,26 @@ export const RoadsterGame: React.FC = () => {
     rampSpot.shadow.normalBias = 0.04;
     scene.add(rampSpot, rampSpot.target);
 
-    const runwaySpot = new THREE.SpotLight('#e8eef5', 420, 0, 0.6, 1, 1.4);
-    runwaySpot.position.set(-118, 30, 24);
+    // Runway & Obstacle Floodlight rig (originating from 26m lamp post at x: -118)
+    const runwaySpot = new THREE.SpotLight('#e8eef5', 450, 0, 0.65, 1, 1.4);
+    runwaySpot.position.set(-118, 25.1, 6.5);
     runwaySpot.target.position.set(-106, 0, 0);
     scene.add(runwaySpot, runwaySpot.target);
+
+    // Jump Mode Start Grid Floodlight (originating from 26m lamp post at x: -174)
+    const jumpStartSpot = new THREE.SpotLight('#e8eef5', 450, 0, 0.65, 1, 1.4);
+    jumpStartSpot.position.set(-174, 25.1, 6.5);
+    jumpStartSpot.target.position.set(-176, 0, 0);
+    scene.add(jumpStartSpot, jumpStartSpot.target);
 
     const apexFill = new THREE.SpotLight('#ffffff', 90, 0, 0.32, 1, 1.4);
     apexFill.position.set(-10, 5, 14);
     apexFill.target.position.set(7, 12, 0);
     scene.add(apexFill, apexFill.target);
 
-    const pointLight = new THREE.PointLight('#ffffff', 14, 14, 1.6);
+    const pointLight = new THREE.PointLight('#ffffff', 18, 22, 1.4);
     scene.add(pointLight);
+    pointLightRef.current = pointLight;
 
     // 5. Environment & Track
     const path = new RampPath({
@@ -323,27 +338,62 @@ export const RoadsterGame: React.FC = () => {
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
 
-    // 11. Keyboard Input Listeners
+    // 11. Keyboard Input Listeners (Robust handling for e.code, e.key, and synthetic inputs)
     const handleKeyDown = (e: KeyboardEvent) => {
       sound.ensure();
-      if (['ArrowUp', 'KeyW'].includes(e.code)) inputsRef.current.forward = true;
-      if (['ArrowDown', 'KeyS'].includes(e.code)) inputsRef.current.back = true;
-      if (e.code === 'Space') { e.preventDefault(); inputsRef.current.lift = true; }
-      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') inputsRef.current.boost = true;
-      if (['ArrowLeft', 'KeyA'].includes(e.code)) inputsRef.current.ccw = true;
-      if (['ArrowRight', 'KeyD'].includes(e.code)) inputsRef.current.cw = true;
-      if (e.code === 'KeyV') handleToggleView();
-      if (e.code === 'KeyR') restart();
-      if (e.code === 'Escape') setStuntResult(null);
+      const code = e.code || '';
+      const key = e.key || '';
+
+      if (['ArrowUp', 'KeyW'].includes(code) || ['ArrowUp', 'w', 'W'].includes(key)) {
+        inputsRef.current.forward = true;
+      }
+      if (['ArrowDown', 'KeyS'].includes(code) || ['ArrowDown', 's', 'S'].includes(key)) {
+        inputsRef.current.back = true;
+      }
+      if (code === 'Space' || key === ' ' || key === 'Spacebar') {
+        e.preventDefault();
+        inputsRef.current.lift = true;
+      }
+      if (['ShiftLeft', 'ShiftRight'].includes(code) || key === 'Shift') {
+        inputsRef.current.boost = true;
+      }
+      if (['ArrowLeft', 'KeyA'].includes(code) || ['ArrowLeft', 'a', 'A'].includes(key)) {
+        inputsRef.current.ccw = true;
+        inputsRef.current.reverseBoost = true;
+      }
+      if (['ArrowRight', 'KeyD'].includes(code) || ['ArrowRight', 'd', 'D'].includes(key)) {
+        inputsRef.current.cw = true;
+        inputsRef.current.boost = true;
+      }
+      if (code === 'KeyV' || key === 'v' || key === 'V') handleToggleView();
+      if (code === 'KeyR' || key === 'r' || key === 'R') restart();
+      if (code === 'Escape' || key === 'Escape') setStuntResult(null);
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (['ArrowUp', 'KeyW'].includes(e.code)) inputsRef.current.forward = false;
-      if (['ArrowDown', 'KeyS'].includes(e.code)) inputsRef.current.back = false;
-      if (e.code === 'Space') inputsRef.current.lift = false;
-      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') inputsRef.current.boost = false;
-      if (['ArrowLeft', 'KeyA'].includes(e.code)) inputsRef.current.ccw = false;
-      if (['ArrowRight', 'KeyD'].includes(e.code)) inputsRef.current.cw = false;
+      const code = e.code || '';
+      const key = e.key || '';
+
+      if (['ArrowUp', 'KeyW'].includes(code) || ['ArrowUp', 'w', 'W'].includes(key)) {
+        inputsRef.current.forward = false;
+      }
+      if (['ArrowDown', 'KeyS'].includes(code) || ['ArrowDown', 's', 'S'].includes(key)) {
+        inputsRef.current.back = false;
+      }
+      if (code === 'Space' || key === ' ' || key === 'Spacebar') {
+        inputsRef.current.lift = false;
+      }
+      if (['ShiftLeft', 'ShiftRight'].includes(code) || key === 'Shift') {
+        inputsRef.current.boost = false;
+      }
+      if (['ArrowLeft', 'KeyA'].includes(code) || ['ArrowLeft', 'a', 'A'].includes(key)) {
+        inputsRef.current.ccw = false;
+        inputsRef.current.reverseBoost = false;
+      }
+      if (['ArrowRight', 'KeyD'].includes(code) || ['ArrowRight', 'd', 'D'].includes(key)) {
+        inputsRef.current.cw = false;
+        inputsRef.current.boost = false;
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -371,8 +421,14 @@ export const RoadsterGame: React.FC = () => {
           if (leftTrigger > 0.1) inputsRef.current.back = true;
           if (gp.buttons[0]?.pressed) inputsRef.current.lift = true; // A button
           if (gp.buttons[5]?.pressed) inputsRef.current.boost = true; // RB
-          if (leftStickX < -0.3) inputsRef.current.ccw = true;
-          if (leftStickX > 0.3) inputsRef.current.cw = true;
+          if (leftStickX < -0.3) {
+            inputsRef.current.ccw = true;
+            inputsRef.current.reverseBoost = true;
+          }
+          if (leftStickX > 0.3) {
+            inputsRef.current.cw = true;
+            inputsRef.current.boost = true;
+          }
         }
       }
 
@@ -383,6 +439,7 @@ export const RoadsterGame: React.FC = () => {
       simulation.drive = driveInput;
       simulation.lift = inputsRef.current.lift;
       simulation.boost = inputsRef.current.boost;
+      simulation.reverseBoost = inputsRef.current.reverseBoost || false;
 
       let turnInput = 0;
       if (inputsRef.current.ccw) turnInput += 1; // Counter-clockwise flip
@@ -412,9 +469,9 @@ export const RoadsterGame: React.FC = () => {
         car.group.position.set(simulation.x, simulation.y, 0);
         car.group.rotation.z = simulation.angle;
         car.updateWheelRotation(simulation.wheelTurn);
-        car.updateThrusters(simulation.lifting, simulation.boosting, dt, currentTime * 0.001);
+        car.updateThrusters(simulation.lifting, simulation.boosting, dt, currentTime * 0.001, simulation.reversing);
         if (car.setBraking) {
-          car.setBraking(simulation.drive < 0);
+          car.setBraking(simulation.drive < 0 || simulation.reversing);
         }
 
         // Emit SpaceX Cold Gas Particles
@@ -424,9 +481,18 @@ export const RoadsterGame: React.FC = () => {
           particles.emitGas(car.group.position, downDir, carVel, 6, 1.2);
         }
         if (simulation.boosting) {
+          // Single rear SpaceX booster: emits gas backwards (-X relative to car body)
           const tailDir = new THREE.Vector3(-1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), simulation.angle);
           const carVel = new THREE.Vector3(simulation.vx, simulation.vy, 0);
-          particles.emitGas(car.group.position, tailDir, carVel, 10, 1.6);
+          const rearPos = new THREE.Vector3(-2.24, 0.35, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), simulation.angle).add(car.group.position);
+          particles.emitGas(rearPos, tailDir, carVel, 10, 1.6);
+        }
+        if (simulation.reversing) {
+          // Front nose reverse booster: emits gas forwards (+X relative to car body)
+          const noseDir = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), simulation.angle);
+          const carVel = new THREE.Vector3(simulation.vx, simulation.vy, 0);
+          const frontPos = new THREE.Vector3(2.15, 0.32, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), simulation.angle).add(car.group.position);
+          particles.emitGas(frontPos, noseDir, carVel, 10, 1.6);
         }
       }
 
@@ -439,8 +505,13 @@ export const RoadsterGame: React.FC = () => {
       }
 
       // Update Procedural Sound Engine
-      const thrusterIntensity = (simulation.lifting ? 0.7 : 0) + (simulation.boosting ? 0.9 : 0);
+      const thrusterIntensity = (simulation.lifting ? 0.7 : 0) + (simulation.boosting ? 0.9 : 0) + (simulation.reversing ? 0.9 : 0);
       sound.update(simulation.v, simulation.drive !== 0, simulation.suction, thrusterIntensity);
+
+      // Point light dynamically follows the car everywhere it drives or flies with thrusters
+      if (pointLightRef.current) {
+        pointLightRef.current.position.set(simulation.x - 2, simulation.y + 4, 6);
+      }
 
       // 13. Dynamic Camera Positioning
       const mode = viewModeRef.current;
@@ -448,14 +519,35 @@ export const RoadsterGame: React.FC = () => {
       const targetY = Math.max(1.0, simulation.y);
 
       if (mode === 'Side') {
-        // 2D Lateral Cinematic View with lead-ahead
-        const lookAhead = simulation.vx * 0.35;
-        const targetCamX = targetX + lookAhead;
-        const targetCamY = targetY + 3.5;
-        camera.position.x += (targetCamX - camera.position.x) * 0.08;
-        camera.position.y += (targetCamY - camera.position.y) * 0.08;
-        camera.position.z = 24 + Math.abs(simulation.vy) * 0.25;
-        camera.lookAt(targetX + lookAhead * 0.5, targetY, 0);
+        if (simulation.challenge === 'jump') {
+          // Exact flowing.to Jump Mode Camera Framing: wide view in ready mode, tracks when driving
+          const isPortrait = camera.aspect < 0.9;
+          const leftBound = targetX - (isPortrait ? 6 : 16);
+          const rightBound = simulation.mode === 'ready'
+            ? (obstaclesObj.end + 8)
+            : targetX + (isPortrait ? 14 : 32);
+          const spanX = rightBound - leftBound;
+          const heightSpan = Math.max(12, targetY + 6) + 4.5;
+          const halfFovRad = (camera.fov * Math.PI) / 360;
+          const tanFov = Math.tan(halfFovRad);
+          const reqZ = 1.04 * Math.max(heightSpan / 2 / tanFov, spanX / 2 / (tanFov * camera.aspect));
+          const centerX = (leftBound + rightBound) / 2;
+          const centerY = -4.5 + heightSpan / 2;
+
+          camera.position.x += (centerX - camera.position.x) * 0.08;
+          camera.position.y += (centerY + 2 - camera.position.y) * 0.08;
+          camera.position.z += (reqZ - camera.position.z) * 0.08;
+          camera.lookAt(centerX, centerY, 0);
+        } else {
+          // 2D Lateral Cinematic View with lead-ahead on Ramp
+          const lookAhead = simulation.vx * 0.35;
+          const targetCamX = targetX + lookAhead;
+          const targetCamY = targetY + 3.5;
+          camera.position.x += (targetCamX - camera.position.x) * 0.08;
+          camera.position.y += (targetCamY - camera.position.y) * 0.08;
+          camera.position.z = 24 + Math.abs(simulation.vy) * 0.25;
+          camera.lookAt(targetX + lookAhead * 0.5, targetY, 0);
+        }
       } else if (mode === 'Chase') {
         // Third-Person Dynamic Rear-Isometric View
         const angle = simulation.angle;
@@ -486,6 +578,12 @@ export const RoadsterGame: React.FC = () => {
         camera.lookAt(targetX, targetY, 0);
       }
 
+      // Adapt fog density dynamically with camera distance (matching flowing.to)
+      const camDist = camera.position.distanceTo(new THREE.Vector3(targetX, targetY, 0));
+      if (scene.fog && 'density' in scene.fog) {
+        (scene.fog as THREE.FogExp2).density = 0.0035 * Math.max(0.35, Math.min(1.0, 45.0 / Math.max(1.0, camDist)));
+      }
+
       // Render Scene with Bloom Post-processing
       composer.render();
 
@@ -502,6 +600,7 @@ export const RoadsterGame: React.FC = () => {
           suction: simulation.suction,
           lifting: simulation.lifting,
           boosting: simulation.boosting,
+          reversing: simulation.reversing,
           pitching: simulation.pitching
         });
       }

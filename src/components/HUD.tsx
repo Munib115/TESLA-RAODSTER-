@@ -19,7 +19,7 @@ interface HUDProps {
   telemetry: TelemetryData;
   result: StuntResult | null;
   onCloseResult: () => void;
-  onTouchPress: (action: 'forward' | 'back' | 'lift' | 'boost' | 'ccw' | 'cw', pressed: boolean) => void;
+  onTouchPress: (action: 'forward' | 'back' | 'lift' | 'boost' | 'reverseBoost' | 'ccw' | 'cw', pressed: boolean) => void;
 }
 
 export const HUD: React.FC<HUDProps> = ({
@@ -86,10 +86,10 @@ export const HUD: React.FC<HUDProps> = ({
       }
     } else {
       hint = 'Boost over the 5 parked vehicles!';
-      subHint = 'Press <kbd>SPACE</kbd> for Lift, <kbd>SHIFT</kbd> for Boost';
+      subHint = '<kbd>►</kbd>/<kbd>D</kbd> Boost · <kbd>◄</kbd>/<kbd>A</kbd> Reverse Thruster · <kbd>SPACE</kbd> Lift';
     }
   } else if (telemetry.mode === 'air') {
-    hint = '<kbd>SPACE</kbd> Lift · <kbd>SHIFT</kbd> Boost · <kbd>A</kbd>/<kbd>D</kbd> Flip';
+    hint = '<kbd>►</kbd> Boost · <kbd>◄</kbd> Reverse Thruster · <kbd>SPACE</kbd> Lift · <kbd>A</kbd>/<kbd>D</kbd> Flip';
     subHint = 'Touchdown level (< 28°) and soft (< 7 m/s) on wheels';
   } else if (telemetry.mode === 'landed') {
     hint = 'Touchdown! Press <kbd>R</kbd> to launch again';

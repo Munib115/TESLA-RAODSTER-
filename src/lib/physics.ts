@@ -185,12 +185,14 @@ export class PhysicsSimulation {
   // Driver inputs
   public drive: number = 0;     // -1 to 1
   public lift: boolean = false; // SpaceX floor lift thrusters
-  public boost: boolean = false;// SpaceX tail boost thruster
+  public boost: boolean = false;// SpaceX tail boost thruster (Right Arrow / Key D)
+  public reverseBoost: boolean = false; // SpaceX reverse/airbrake thruster (Left Arrow / Key A)
   public turn: number = 0;      // -1 (CCW) to 1 (CW)
 
   // Status flags
   public lifting: boolean = false;
   public boosting: boolean = false;
+  public reversing: boolean = false;
   public pitching: number = 0;
   public suction: boolean = false;
   public gas: number = 600;
@@ -251,6 +253,7 @@ export class PhysicsSimulation {
     this.settleTime = 0;
     this.lifting = false;
     this.boosting = false;
+    this.reversing = false;
     this.pitching = 0;
     this.suction = false;
     this.fromRamp = false;
@@ -299,7 +302,7 @@ export class PhysicsSimulation {
     this.suction = false;
 
     if (this.mode === 'ready') {
-      if (this.drive === 0 && !this.lift && !this.boost) return;
+      if (this.drive === 0 && !this.lift && !this.boost && !this.reverseBoost) return;
       this.mode = 'drive';
     }
 
@@ -329,11 +332,18 @@ export class PhysicsSimulation {
           this.v -= Math.sign(this.v) * Math.min(Math.abs(this.v), 0.4 * dt);
         }
 
-        // SpaceX tail boost while on ground
+        // SpaceX tail boost while on ground (Right key / Forward booster)
         if (this.boost && this.gas > 0) {
           this.v += side * cfg.boost * g * dt;
           this.gas = Math.max(0, this.gas - 0.5 * cfg.burn * dt);
           this.boosting = true;
+        }
+
+        // SpaceX reverse/airbrake boost while on ground (Left key / Backward booster)
+        if (this.reverseBoost && this.gas > 0) {
+          this.v -= side * cfg.boost * g * dt;
+          this.gas = Math.max(0, this.gas - 0.5 * cfg.burn * dt);
+          this.reversing = true;
         }
 
         // Centrifugal adhesion vs suction detachment check
@@ -408,13 +418,22 @@ export class PhysicsSimulation {
         this.lifting = true;
       }
 
-      // SpaceX Tail Boost Nozzle
+      // SpaceX Tail Boost Nozzle (Right key / Forward booster)
       if (this.boost && this.gas > 0) {
         const boostAcc = cfg.boost * g;
         fx += Math.cos(this.angle) * boostAcc;
         fy += Math.sin(this.angle) * boostAcc;
         this.gas = Math.max(0, this.gas - 0.5 * cfg.burn * dt);
         this.boosting = true;
+      }
+
+      // SpaceX Front/Airbrake Reverse Boost Nozzle (Left key / Backward booster)
+      if (this.reverseBoost && this.gas > 0) {
+        const reverseAcc = cfg.boost * g;
+        fx -= Math.cos(this.angle) * reverseAcc;
+        fy -= Math.sin(this.angle) * reverseAcc;
+        this.gas = Math.max(0, this.gas - 0.5 * cfg.burn * dt);
+        this.reversing = true;
       }
 
       // Cold Gas Attitude Reaction Control Thrusters (Pitch Flips)
