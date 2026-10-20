@@ -98,21 +98,260 @@ export const OBSTACLES_CONFIG = [
   }
 ];
 
+// -------------------------------------------------------------
+// Realistic Procedural Surface Textures (Asphalt & Tarmac Aggregate)
+// -------------------------------------------------------------
+function createAsphaltTextures() {
+  if (typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  // Base asphalt slate tone matching flowing.to proving ground
+  ctx.fillStyle = '#262d3a';
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Micro-aggregate stone flecks & realistic surface texture
+  const imgData = ctx.getImageData(0, 0, 512, 512);
+  const data = imgData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const noise = (Math.random() - 0.5) * 32;
+    const base = 44 + noise;
+    data[i] = Math.max(22, Math.min(85, base - 3));     // R
+    data[i + 1] = Math.max(26, Math.min(90, base));      // G
+    data[i + 2] = Math.max(34, Math.min(105, base + 6)); // B (cool proving ground slate)
+    // Random aggregate quartz / granite chips
+    if (Math.random() < 0.06) {
+      const fleck = (Math.random() - 0.5) * 55;
+      data[i] = Math.max(20, Math.min(130, data[i] + fleck));
+      data[i + 1] = Math.max(24, Math.min(135, data[i + 1] + fleck));
+      data[i + 2] = Math.max(30, Math.min(145, data[i + 2] + fleck));
+    }
+  }
+  ctx.putImageData(imgData, 0, 0);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(120, 36);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+// -------------------------------------------------------------
+// Atmospheric Sky Dome & Distant Aerospace Proving Ground Environment
+// -------------------------------------------------------------
+export function createSkyAndEnvironment(): { group: THREE.Group; update: (time: number) => void; dispose: () => void } {
+  const group = new THREE.Group();
+  const geoms: THREE.BufferGeometry[] = [];
+  const mats: THREE.Material[] = [];
+  const animatedBeacons: THREE.MeshBasicMaterial[] = [];
+
+  // 1. Panoramic Curved Sky Backdrop with Atmospheric Night Gradient
+  const skyRadius = 520;
+  const skyHeight = 360;
+  const skySegments = 48;
+  const skyGeom = new THREE.CylinderGeometry(skyRadius, skyRadius, skyHeight, skySegments, 16, true, Math.PI * 0.75, Math.PI * 1.5);
+  geoms.push(skyGeom);
+
+  // Vertical gradient shader: deep cosmic navy at top -> twilight indigo -> warm aerospace horizon haze
+  const skyMat = new THREE.ShaderMaterial({
+    uniforms: {
+      uZenith: { value: new THREE.Color('#020409') },
+      uMid: { value: new THREE.Color('#070e1c') },
+      uHorizon: { value: new THREE.Color('#131c2d') },
+      uGround: { value: new THREE.Color('#060a12') }
+    },
+    vertexShader: `
+      varying vec3 vWorldPosition;
+      void main() {
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vWorldPosition = worldPosition.xyz;
+        gl_Position = projectionMatrix * viewMatrix * worldPosition;
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uZenith;
+      uniform vec3 uMid;
+      uniform vec3 uHorizon;
+      uniform vec3 uGround;
+      varying vec3 vWorldPosition;
+      void main() {
+        float h = vWorldPosition.y;
+        vec3 color;
+        if (h > 60.0) {
+          float t = clamp((h - 60.0) / 140.0, 0.0, 1.0);
+          color = mix(uMid, uZenith, t);
+        } else if (h > 0.0) {
+          float t = clamp(h / 60.0, 0.0, 1.0);
+          color = mix(uHorizon, uMid, t);
+        } else {
+          float t = clamp((h + 40.0) / 40.0, 0.0, 1.0);
+          color = mix(uGround, uHorizon, t);
+        }
+        gl_FragColor = vec4(color, 1.0);
+      }
+    `,
+    side: THREE.BackSide,
+    depthWrite: false
+  });
+  mats.push(skyMat);
+
+  const skyMesh = new THREE.Mesh(skyGeom, skyMat);
+  skyMesh.position.set(-80, 80, -30);
+  group.add(skyMesh);
+
+  // 2. Realistic Subtle Twinkling Night Sky Starfield
+  const starCount = 380;
+  const starPositions = new Float32Array(starCount * 3);
+  for (let i = 0; i < starCount; i++) {
+    const theta = Math.PI * 0.78 + Math.random() * (Math.PI * 1.44);
+    const r = 450 + Math.random() * 50;
+    starPositions[i * 3] = -80 + Math.cos(theta) * r;
+    starPositions[i * 3 + 1] = 45 + Math.random() * 160;
+    starPositions[i * 3 + 2] = -30 + Math.sin(theta) * r;
+  }
+  const starGeom = new THREE.BufferGeometry();
+  starGeom.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+  geoms.push(starGeom);
+
+  const starMat = new THREE.PointsMaterial({
+    color: '#cbd5e1',
+    size: 1.8,
+    transparent: true,
+    opacity: 0.68,
+    sizeAttenuation: false
+  });
+  mats.push(starMat);
+  group.add(new THREE.Points(starGeom, starMat));
+
+  // 3. Distant Mountain Ridgeline Silhouette (Placed at Z = -135 in background)
+  const mountainShape = new THREE.Shape();
+  mountainShape.moveTo(-450, 0);
+  const mountainPoints: [number, number][] = [
+    [-420, 14], [-380, 22], [-340, 16], [-300, 28], [-260, 34],
+    [-220, 20], [-180, 31], [-140, 24], [-100, 38], [-60, 22],
+    [-20, 32], [20, 18], [60, 30], [100, 25], [140, 36],
+    [180, 20], [220, 26], [260, 16], [300, 24], [350, 0]
+  ];
+  for (const pt of mountainPoints) {
+    mountainShape.lineTo(pt[0], pt[1]);
+  }
+  mountainShape.lineTo(350, 0);
+  mountainShape.lineTo(-450, 0);
+
+  const mountainGeom = new THREE.ShapeGeometry(mountainShape);
+  geoms.push(mountainGeom);
+  const mountainMat = new THREE.MeshBasicMaterial({
+    color: '#090e18',
+    transparent: true,
+    opacity: 0.88
+  });
+  mats.push(mountainMat);
+
+  const mountainMesh = new THREE.Mesh(mountainGeom, mountainMat);
+  mountainMesh.position.set(-60, 0, -135);
+  group.add(mountainMesh);
+
+  // 4. Distant Proving Ground Aerospace Facility Silhouettes (Z = -95 to -115)
+  const facilityMat = new THREE.MeshBasicMaterial({
+    color: '#0d131f'
+  });
+  const beaconRedMat = new THREE.MeshBasicMaterial({
+    color: '#ff2222'
+  });
+  const beaconAmberMat = new THREE.MeshBasicMaterial({
+    color: '#f59e0b',
+    transparent: true,
+    opacity: 0.45
+  });
+  mats.push(facilityMat, beaconRedMat, beaconAmberMat);
+  animatedBeacons.push(beaconRedMat);
+
+  // Modern aerospace hangar bays & high-bay assembly pavilions
+  const addHangar = (x: number, w: number, h: number, z: number) => {
+    const hangarGeom = new THREE.BoxGeometry(w, h, 8);
+    hangarGeom.translate(0, h / 2, 0);
+    geoms.push(hangarGeom);
+    const mesh = new THREE.Mesh(hangarGeom, facilityMat);
+    mesh.position.set(x, 0, z);
+    group.add(mesh);
+
+    // Subtle amber perimeter ground marker lights along the facility base
+    const numMarkers = Math.floor(w / 14);
+    for (let i = 0; i <= numMarkers; i++) {
+      const mGeom = new THREE.PlaneGeometry(0.8, 0.4);
+      geoms.push(mGeom);
+      const mMesh = new THREE.Mesh(mGeom, beaconAmberMat);
+      mMesh.position.set(x - w / 2 + i * 14, 0.6, z + 4.2);
+      group.add(mMesh);
+    }
+  };
+
+  // Telemetry tower mast with pulsating aviation obstruction beacon
+  const addTelemetryTower = (x: number, h: number, z: number) => {
+    const mastGeom = new THREE.CylinderGeometry(0.2, 0.6, h, 6);
+    mastGeom.translate(0, h / 2, 0);
+    geoms.push(mastGeom);
+    const mast = new THREE.Mesh(mastGeom, facilityMat);
+    mast.position.set(x, 0, z);
+    group.add(mast);
+
+    // Red pulsating aviation obstacle beacon at top of tower
+    const beaconGeom = new THREE.SphereGeometry(0.45, 8, 8);
+    beaconGeom.translate(0, h + 0.35, 0);
+    geoms.push(beaconGeom);
+    const beaconMesh = new THREE.Mesh(beaconGeom, beaconRedMat);
+    beaconMesh.position.set(x, 0, z);
+    group.add(beaconMesh);
+  };
+
+  // Facility layout in distant background
+  addHangar(-230, 75, 22, -110);
+  addHangar(-140, 110, 32, -118);
+  addHangar(45, 85, 26, -112);
+  addHangar(160, 65, 18, -108);
+
+  addTelemetryTower(-275, 42, -105);
+  addTelemetryTower(-85, 48, -115);
+  addTelemetryTower(95, 38, -108);
+
+  return {
+    group,
+    update(time: number) {
+      // Pulse distant aviation warning lights (slow realistic 1.2s sine cycle)
+      const pulse = 0.4 + 0.6 * Math.max(0, Math.sin(time * 3.2));
+      beaconRedMat.color.setRGB(pulse, 0.05, 0.05);
+    },
+    dispose() {
+      geoms.forEach(g => g.dispose());
+      mats.forEach(m => m.dispose());
+    }
+  };
+}
+
+// -------------------------------------------------------------
+// Realistic Proving Ground Runway & High-Speed Test Track
+// -------------------------------------------------------------
 export function createRunway(settings: GameSettings) {
   const group = new THREE.Group();
   const geoms: THREE.BufferGeometry[] = [];
   const mats: THREE.Material[] = [];
 
-  // 1. Wet Asphalt Ground Plane (Visible slate terrain matching flowing.to)
-  const groundGeom = new THREE.PlaneGeometry(750, 400);
+  // 1. Seamless High-Fidelity Wet Asphalt Ground Plane
+  const asphaltTexture = createAsphaltTextures();
+  const groundGeom = new THREE.PlaneGeometry(2400, 800);
   groundGeom.rotateX(-Math.PI / 2);
   geoms.push(groundGeom);
 
   const groundMat = new THREE.MeshStandardMaterial({
-    color: '#15181f',
-    roughness: 0.82,
-    metalness: 0.1,
-    envMapIntensity: 0.4
+    color: '#2b3342',
+    roughness: 0.62,
+    metalness: 0.12,
+    map: asphaltTexture || undefined,
+    envMapIntensity: 0.65
   });
   mats.push(groundMat);
 
@@ -121,11 +360,11 @@ export function createRunway(settings: GameSettings) {
   groundMesh.receiveShadow = true;
   group.add(groundMesh);
 
-  // 2. Tarmac Markings Material (Visible silver-grey guide lines)
+  // 2. Proving Ground Retro-Reflective Markings Material
   const lineMat = new THREE.MeshBasicMaterial({
-    color: '#8e98a8',
+    color: '#94a3b8',
     transparent: true,
-    opacity: 0.65,
+    opacity: 0.72,
     polygonOffset: true,
     polygonOffsetFactor: -2
   });
@@ -143,25 +382,84 @@ export function createRunway(settings: GameSettings) {
     group.add(mesh);
   };
 
-  // Runway center axis and perspective guide lines (matching flowing.to)
-  addLine(-190, 0, 24, 0, 0.16);
+  // Runway center axis and perspective guide lines
+  addLine(-240, 0, 36, 0, 0.18);
   addLine(-75, -28, 22, 22, 0.18);
   addLine(-75, 28, 22, -22, 0.18);
   addLine(-120, -14, 22, -14, 0.14);
   addLine(-120, 14, 22, 14, 0.14);
 
-  // Target Landing Zones with diagonal "X" cross-hairs
+  // 3. Runway Threshold "Piano Key" Bars (Realistic Aviation Test Track Markings)
+  const addPianoKeys = (startX: number, width: number, length: number, barCount: number) => {
+    const barW = width / (barCount * 2 - 1);
+    for (let i = 0; i < barCount; i++) {
+      const z = -width / 2 + barW / 2 + i * (barW * 2);
+      const geom = new THREE.PlaneGeometry(length, barW);
+      geom.rotateX(-Math.PI / 2);
+      geoms.push(geom);
+      const mesh = new THREE.Mesh(geom, lineMat);
+      mesh.position.set(startX + length / 2, 0.006, z);
+      group.add(mesh);
+    }
+  };
+  addPianoKeys(-190, 8.4, 7.5, 8);
+
+  // 4. Distance-To-Go Runway Chevrons & Markers
+  const chevronMat = new THREE.MeshBasicMaterial({
+    color: '#cbd5e1',
+    transparent: true,
+    opacity: 0.6,
+    polygonOffset: true,
+    polygonOffsetFactor: -2
+  });
+  mats.push(chevronMat);
+
+  const addDistanceMarker = (x: number) => {
+    // Left & right transverse tick marks
+    for (const zSide of [1, -1]) {
+      const geom = new THREE.PlaneGeometry(0.35, 2.2);
+      geom.rotateX(-Math.PI / 2);
+      geoms.push(geom);
+      const tick = new THREE.Mesh(geom, chevronMat);
+      tick.position.set(x, 0.006, zSide * 4.2);
+      group.add(tick);
+    }
+  };
+  [-160, -130, -100, -70, -40, -10, 20].forEach(addDistanceMarker);
+
+  // 5. High-Torque Acceleration Tire Scrub / Burnout Marks
+  const scrubMat = new THREE.MeshBasicMaterial({
+    color: '#080a0f',
+    transparent: true,
+    opacity: 0.38,
+    polygonOffset: true,
+    polygonOffsetFactor: -3
+  });
+  mats.push(scrubMat);
+
+  const addTireBurnout = (startX: number, length: number) => {
+    for (const trackZ of [-0.95, 0.95]) {
+      const geom = new THREE.PlaneGeometry(length, 0.38);
+      geom.rotateX(-Math.PI / 2);
+      geoms.push(geom);
+      const scrub = new THREE.Mesh(geom, scrubMat);
+      scrub.position.set(startX + length / 2, 0.007, trackZ);
+      group.add(scrub);
+    }
+  };
+  addTireBurnout(-185, 28);
+  addTireBurnout(-65, 32);
+
+  // 6. Target Landing Zones with diagonal "X" cross-hairs
   const addTargetZone = (centerX: number, halfWidth: number) => {
     const x0 = centerX - halfWidth;
     const x1 = centerX + halfWidth;
     const z0 = -3.2;
     const z1 = 3.2;
-    // Outer bounding box
     addLine(x0, z0, x1, z0, 0.22);
     addLine(x0, z1, x1, z1, 0.22);
     addLine(x0, z0, x0, z1, 0.22);
     addLine(x1, z0, x1, z1, 0.22);
-    // Diagonal "X" cross-lines (exact flowing.to match)
     addLine(x0, z0, x1, z1, 0.16);
     addLine(x0, z1, x1, z0, 0.16);
   };
@@ -169,47 +467,60 @@ export function createRunway(settings: GameSettings) {
   addTargetZone(settings.zoneX, settings.zoneHalf);
   addTargetZone(settings.jumpZoneX, settings.jumpZoneHalf);
 
-  // Glowing neon red runway edge kerbs and white beacon lights (matching flowing.to)
+  // 7. Sleek Airfield Flush Runway Edge Curb & Low-Profile Pucks
   const curbMat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color('#ff3326').multiplyScalar(2.2),
+    color: new THREE.Color('#ff3f24').multiplyScalar(1.6),
     toneMapped: false
   });
-  const beaconMat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color('#ffffff').multiplyScalar(2.0),
-    toneMapped: false
+  const beaconMat = new THREE.MeshStandardMaterial({
+    color: '#e2e8f0',
+    emissive: '#f8fafc',
+    emissiveIntensity: 0.8,
+    roughness: 0.3
   });
-  mats.push(curbMat, beaconMat);
+  const housingMat = new THREE.MeshStandardMaterial({
+    color: '#1e293b',
+    metalness: 0.85,
+    roughness: 0.35
+  });
+  mats.push(curbMat, beaconMat, housingMat);
 
-  const beaconGeom = new THREE.SphereGeometry(0.07, 6, 4);
-  geoms.push(beaconGeom);
+  const housingGeom = new THREE.CylinderGeometry(0.08, 0.1, 0.04, 10);
+  housingGeom.translate(0, 0.02, 0);
+  const beaconGeom = new THREE.SphereGeometry(0.045, 8, 6);
+  beaconGeom.translate(0, 0.045, 0);
+  geoms.push(housingGeom, beaconGeom);
 
   const addCurbAndBeacons = (x0: number, x1: number, z: number) => {
-    const curbGeom = new THREE.BoxGeometry(x1 - x0, 0.08, 0.08);
+    const curbGeom = new THREE.BoxGeometry(x1 - x0, 0.07, 0.07);
     geoms.push(curbGeom);
     const curb = new THREE.Mesh(curbGeom, curbMat);
-    curb.position.set((x0 + x1) / 2, 0.05, z);
+    curb.position.set((x0 + x1) / 2, 0.04, z);
     group.add(curb);
 
-    const count = Math.floor((x1 - x0) / 2);
+    const count = Math.floor((x1 - x0) / 2.5);
     if (count > 0) {
-      const inst = new THREE.InstancedMesh(beaconGeom, beaconMat, count);
+      const instH = new THREE.InstancedMesh(housingGeom, housingMat, count);
+      const instB = new THREE.InstancedMesh(beaconGeom, beaconMat, count);
       const dummy = new THREE.Matrix4();
       for (let i = 0; i < count; i++) {
-        dummy.makeTranslation(x0 + 1 + 2 * i, 0.35, z - 0.4 * Math.sign(z));
-        inst.setMatrixAt(i, dummy);
+        dummy.makeTranslation(x0 + 1 + 2.5 * i, 0, z - 0.28 * Math.sign(z));
+        instH.setMatrixAt(i, dummy);
+        instB.setMatrixAt(i, dummy);
       }
-      group.add(inst);
+      group.add(instH, instB);
     }
   };
 
   addCurbAndBeacons(-66, -2, -9);
-  addCurbAndBeacons(-190, -60, -9);
+  addCurbAndBeacons(-220, -60, -9);
   addCurbAndBeacons(-66, -2, 9);
-  addCurbAndBeacons(-190, -60, 9);
+  addCurbAndBeacons(-220, -60, 9);
 
   return {
     group,
     dispose() {
+      if (asphaltTexture) asphaltTexture.dispose();
       geoms.forEach(g => g.dispose());
       mats.forEach(m => m.dispose());
     }
@@ -242,20 +553,22 @@ export function createObstacleCars(): { group: THREE.Group; obstacles: ObstacleV
   });
   mats.push(glassMat, tireMat, rimMat);
 
-  // 3D Industrial Floodlight Lamp Posts (towering 26m masts over Jump Section)
+  // 3D Industrial Floodlight Towers (Realistic 18m Proving Ground Stadium Light Masts)
   const lampPoleMat = new THREE.MeshStandardMaterial({
-    color: '#27272a',
-    metalness: 0.8,
-    roughness: 0.35
+    color: '#334155',
+    metalness: 0.85,
+    roughness: 0.3
   });
   const lampHeadMat = new THREE.MeshStandardMaterial({
-    color: '#18181b',
+    color: '#1e293b',
     metalness: 0.9,
     roughness: 0.25
   });
-  const lampBulbMat = new THREE.MeshBasicMaterial({
-    color: new THREE.Color('#ffffff').multiplyScalar(2.5),
-    toneMapped: false
+  const lampBulbMat = new THREE.MeshStandardMaterial({
+    color: '#fffbeb',
+    emissive: '#fef3c7',
+    emissiveIntensity: 1.4,
+    roughness: 0.2
   });
   mats.push(lampPoleMat, lampHeadMat, lampBulbMat);
 
@@ -266,46 +579,48 @@ export function createObstacleCars(): { group: THREE.Group; obstacles: ObstacleV
     const isBackside = posZ < 0;
     const dir = isBackside ? 1 : -1;
 
-    // Vertical steel tower mast (height 26m)
-    const mastGeom = new THREE.CylinderGeometry(0.18, 0.28, 26, 12);
-    mastGeom.translate(0, 13, 0);
+    // Tapered Steel Mast (Height 19m)
+    const mastGeom = new THREE.CylinderGeometry(0.16, 0.32, 19, 10);
+    mastGeom.translate(0, 9.5, 0);
     geoms.push(mastGeom);
     lampGroup.add(new THREE.Mesh(mastGeom, lampPoleMat));
 
-    // Overhang horizontal boom arm pointing towards track center (z = 0)
-    const boomGeom = new THREE.BoxGeometry(0.22, 0.22, 7.5);
-    boomGeom.translate(0, 25.5, dir * 3.75);
+    // Heavy-Duty Cross-Arm Mount pointing towards track center
+    const boomGeom = new THREE.BoxGeometry(0.2, 0.2, 5.5);
+    boomGeom.translate(0, 18.6, dir * 2.75);
     geoms.push(boomGeom);
     lampGroup.add(new THREE.Mesh(boomGeom, lampPoleMat));
 
-    // Angled support brace
-    const braceGeom = new THREE.BoxGeometry(0.14, 0.14, 4.5);
-    braceGeom.rotateX(dir * (Math.PI / 4));
-    braceGeom.translate(0, 23.5, dir * 2.8);
+    // Angled Steel Support Brace
+    const braceGeom = new THREE.BoxGeometry(0.12, 0.12, 3.8);
+    braceGeom.rotateX(dir * (Math.PI / 4.2));
+    braceGeom.translate(0, 17.2, dir * 2.1);
     geoms.push(braceGeom);
     lampGroup.add(new THREE.Mesh(braceGeom, lampPoleMat));
 
-    // Floodlight head fixture angled down towards runway
-    const fixtureGeom = new THREE.BoxGeometry(1.6, 0.75, 1.1);
-    fixtureGeom.rotateX(-dir * 0.48);
-    fixtureGeom.translate(0, 25.1, dir * 7.5);
-    geoms.push(fixtureGeom);
-    lampGroup.add(new THREE.Mesh(fixtureGeom, lampHeadMat));
+    // Bank of 3 Compact Directional LED Flood Units with Glare Visors
+    for (let k = -1; k <= 1; k++) {
+      const visorGeom = new THREE.BoxGeometry(0.55, 0.36, 0.45);
+      visorGeom.rotateX(-dir * 0.58);
+      visorGeom.translate(k * 0.72, 18.3, dir * 5.4);
+      geoms.push(visorGeom);
+      lampGroup.add(new THREE.Mesh(visorGeom, lampHeadMat));
 
-    // Luminous floodlight lens facing the runway
-    const lensGeom = new THREE.PlaneGeometry(1.4, 0.65);
-    lensGeom.rotateX(isBackside ? Math.PI / 2 - 0.48 : -Math.PI / 2 + 0.48);
-    lensGeom.translate(0, 24.7, dir * 7.6);
-    geoms.push(lensGeom);
-    lampGroup.add(new THREE.Mesh(lensGeom, lampBulbMat));
+      // Recessed Lens Array with realistic soft warm glow
+      const lensGeom = new THREE.PlaneGeometry(0.48, 0.28);
+      lensGeom.rotateX(isBackside ? Math.PI / 2 - 0.58 : -Math.PI / 2 + 0.58);
+      lensGeom.translate(k * 0.72, 18.15, dir * 5.5);
+      geoms.push(lensGeom);
+      lampGroup.add(new THREE.Mesh(lensGeom, lampBulbMat));
+    }
 
     group.add(lampGroup);
   };
 
   // 1. Tower mast in background at Jump starting grid
-  buildLamp(-174, -14);
+  buildLamp(-174, -13);
   // 2. Tower mast in background over Jump obstacle convoy
-  buildLamp(-118, -14);
+  buildLamp(-118, -13);
 
   // Realistic Automotive Materials for Obstacle Vehicles (matching Roadster quality)
   const carbonMat = new THREE.MeshStandardMaterial({
@@ -940,10 +1255,10 @@ export function createRampMesh(path: RampPath) {
   // 2. Animated LED Neon Progress Strip along the ramp edges
   const ledMat = new THREE.ShaderMaterial({
     uniforms: {
-      uColor: { value: new THREE.Color('#ff3326') },
-      uLit: { value: new THREE.Color('#ffffff').multiplyScalar(1.5) },
+      uColor: { value: new THREE.Color('#ff441f') },
+      uLit: { value: new THREE.Color('#ffaa88') },
       uProgress: { value: -1.0 },
-      uIntensity: { value: 2.2 }
+      uIntensity: { value: 1.5 }
     },
     vertexShader: `
       attribute float aS;

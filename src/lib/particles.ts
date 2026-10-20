@@ -83,7 +83,7 @@ export class ParticleSystem {
       `,
       transparent: true,
       depthWrite: false,
-      blending: THREE.AdditiveBlending
+      blending: THREE.NormalBlending
     });
 
     this.points = new THREE.Points(this.geom, this.mat);
@@ -115,14 +115,14 @@ export class ParticleSystem {
 
   public emitGas(origin: THREE.Vector3, dir: THREE.Vector3, carVel: THREE.Vector3, count: number, intensity: number = 1.0) {
     for (let i = 0; i < count; i++) {
-      const speed = (20 + 16 * Math.random()) * intensity;
+      const speed = (12 + 10 * Math.random()) * intensity;
       this.tmpV.copy(dir).multiplyScalar(speed).add(carVel);
-      this.tmpV.x += (Math.random() - 0.5) * 4;
-      this.tmpV.y += (Math.random() - 0.5) * 4;
-      this.tmpV.z += (Math.random() - 0.5) * 4;
+      this.tmpV.x += (Math.random() - 0.5) * 2.5;
+      this.tmpV.y += (Math.random() - 0.5) * 2.5;
+      this.tmpV.z += (Math.random() - 0.5) * 2.5;
 
-      this.tmpP.copy(origin).addScaledVector(dir, 0.4 * Math.random());
-      this.emit(0, this.tmpP, this.tmpV, (0.45 + 0.65 * Math.random()) * (0.6 + 0.4 * intensity), 0.28, (1.8 + 1.6 * Math.random()) * intensity);
+      this.tmpP.copy(origin).addScaledVector(dir, 0.2 * Math.random());
+      this.emit(0, this.tmpP, this.tmpV, (0.35 + 0.35 * Math.random()) * (0.7 + 0.3 * intensity), 0.12, (0.75 + 0.65 * Math.random()) * intensity);
     }
   }
 
@@ -170,7 +170,7 @@ export class ParticleSystem {
       }
 
       sizes[i] = this.size0[i] + (this.size1[i] - this.size0[i]) * Math.sqrt(progress);
-      alphas[i] = (isGas ? 0.55 : 0.45) * Math.min(1.0, 8 * progress) * (1 - progress) * (1 - progress);
+      alphas[i] = (isGas ? 0.38 : 0.35) * Math.min(1.0, 5.0 * progress) * Math.pow(1.0 - progress, 1.4);
 
       const color = isGas ? this.gasColor : this.smokeColor;
       tints[3 * i] = color.r;
@@ -196,7 +196,7 @@ export class ParticleSystem {
 }
 
 /**
- * Conical Thruster Jet Flame mesh shader for cold-gas nozzles
+ * Conical Thruster Jet Plume for SpaceX cold-gas nozzles (realistic compact de Laval nozzle expansion)
  */
 export class ThrusterCone {
   public mesh: THREE.Mesh;
@@ -206,8 +206,8 @@ export class ThrusterCone {
 
   constructor(position: THREE.Vector3, direction: THREE.Vector3, color: THREE.Color) {
     if (!ThrusterCone.sharedGeom) {
-      ThrusterCone.sharedGeom = new THREE.CylinderGeometry(0.06, 0.45, 1.0, 16, 1, true);
-      ThrusterCone.sharedGeom.translate(0, -0.5, 0);
+      ThrusterCone.sharedGeom = new THREE.CylinderGeometry(0.04, 0.16, 0.45, 16, 1, true);
+      ThrusterCone.sharedGeom.translate(0, -0.225, 0);
     }
 
     this.mat = new THREE.ShaderMaterial({
@@ -241,17 +241,18 @@ export class ThrusterCone {
           float lenV = length(vView);
           vec3 nN = lenN > 0.001 ? vN / lenN : vec3(0.0, 1.0, 0.0);
           vec3 nV = lenV > 0.001 ? vView / lenV : vec3(0.0, 0.0, 1.0);
-          float rim = pow(clamp(abs(dot(nN, nV)), 0.0, 1.0), 1.4);
-          float flicker = 0.85 + 0.15 * sin(uTime * 61.0 + vUv.x * 18.0);
-          float a = clamp(pow(along, 1.6) * rim * uLevel * flicker, 0.0, 1.0);
-          gl_FragColor = vec4(uColor * (0.8 + along * 1.1), a);
+          float rim = pow(clamp(abs(dot(nN, nV)), 0.0, 1.0), 1.6);
+          float tipFade = pow(1.0 - along, 1.6);
+          float flicker = 0.90 + 0.10 * sin(uTime * 45.0 + vUv.x * 12.0);
+          float a = clamp(tipFade * rim * uLevel * flicker * 0.45, 0.0, 0.55);
+          gl_FragColor = vec4(uColor, a);
         }
       `,
       transparent: true,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
       side: THREE.DoubleSide,
-      toneMapped: false
+      toneMapped: true
     });
 
     this.mesh = new THREE.Mesh(ThrusterCone.sharedGeom, this.mat);
@@ -261,16 +262,16 @@ export class ThrusterCone {
   }
 
   public update(targetLevel: number, dt: number, time: number) {
-    this.level += (targetLevel - this.level) * Math.min(1.0, dt * (targetLevel > this.level ? 30 : 14));
+    this.level += (targetLevel - this.level) * Math.min(1.0, dt * (targetLevel > this.level ? 25 : 12));
     const active = this.level > 0.01;
     this.mesh.visible = active;
     if (active) {
       this.mat.uniforms.uLevel.value = this.level;
       this.mat.uniforms.uTime.value = time;
       this.mesh.scale.set(
-        0.8 + 0.4 * this.level,
-        0.6 + 2.5 * this.level * (0.9 + 0.2 * Math.random()),
-        0.8 + 0.4 * this.level
+        0.7 + 0.3 * this.level,
+        0.5 + 0.5 * this.level * (0.95 + 0.1 * Math.random()),
+        0.7 + 0.3 * this.level
       );
     }
   }

@@ -298,7 +298,8 @@ export function loadGlbRoadster(
   url: string,
   dracoPath: string,
   onLoaded: (car: RoadsterCar) => void,
-  onFallback: () => void
+  onFallback: () => void,
+  initialColor: string = '#c00f1c'
 ) {
   const loader = new GLTFLoader();
   const draco = new DRACOLoader();
@@ -334,13 +335,13 @@ export function loadGlbRoadster(
       };
 
       const bodyMat = new THREE.MeshPhysicalMaterial({
-        color: '#c00f1c',
-        roughness: 0.42,
-        metalness: 0.02,
-        clearcoat: 0.15,
-        clearcoatRoughness: 0.4,
+        color: new THREE.Color(initialColor),
+        roughness: 0.38,
+        metalness: 0.1,
+        clearcoat: 0.5,
+        clearcoatRoughness: 0.25,
         specularIntensity: 0.45,
-        envMapIntensity: 0.9
+        envMapIntensity: 0.95
       });
       const glassMat = new THREE.MeshPhysicalMaterial({
         color: '#33251a',
@@ -429,6 +430,7 @@ export function loadGlbRoadster(
         headlight: dummyLight,
         setPaintColor(colorHex: string) {
           bodyMat.color.set(colorHex);
+          bodyMat.needsUpdate = true;
         },
         updateThrusters(lifting: boolean, boosting: boolean, dt: number, time: number, reversing: boolean = false) {
           boostCone.update(boosting ? 1.0 : 0.0, dt, time);

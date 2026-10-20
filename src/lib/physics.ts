@@ -298,6 +298,7 @@ export class PhysicsSimulation {
     this.time += dt;
     this.lifting = false;
     this.boosting = false;
+    this.reversing = false;
     this.pitching = 0;
     this.suction = false;
 

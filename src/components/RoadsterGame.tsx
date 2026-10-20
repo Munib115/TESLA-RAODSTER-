@@ -11,7 +11,7 @@ import { CameraViewMode, ChallengeType, GameSettings, StuntResult, TelemetryData
 import { PhysicsSimulation, RampPath } from '../lib/physics';
 import { SoundEngine } from '../lib/sound';
 import { ParticleSystem } from '../lib/particles';
-import { createObstacleCars, createRampMesh, createRunway } from '../lib/environment';
+import { createObstacleCars, createRampMesh, createRunway, createSkyAndEnvironment } from '../lib/environment';
 import { createProceduralTeslaRoadster, loadGlbRoadster, RoadsterCar } from '../lib/roadsterModel';
 import { HUD } from './HUD';
 import { ControlsDrawer } from './ControlsDrawer';
@@ -55,6 +55,8 @@ export const RoadsterGame: React.FC = () => {
 
   // React State for HUD & UI
   const [settings, setSettings] = useState<GameSettings>(DEFAULT_SETTINGS);
+  const settingsRef = useRef<GameSettings>(settings);
+  settingsRef.current = settings;
   const [challenge, setChallenge] = useState<ChallengeType>('ramp');
   const [viewMode, setViewMode] = useState<CameraViewMode>('Side');
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -162,17 +164,17 @@ export const RoadsterGame: React.FC = () => {
     });
     renderer.setPixelRatio(pixelRatio);
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setClearColor('#050608', 1);
+    renderer.setClearColor('#060b17', 1);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = settings.exposure;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    // 2. Scene & Fog Setup (Soft atmospheric fog preserving visible terrain)
+    // 2. Scene & Fog Setup (Atmospheric twilight fog seamlessly blending ground and sky)
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2('#050608', 0.0035);
+    scene.fog = new THREE.FogExp2('#060b17', 0.0028);
 
-    const camera = new THREE.PerspectiveCamera(35, container.clientWidth / container.clientHeight, 0.5, 600);
+    const camera = new THREE.PerspectiveCamera(35, container.clientWidth / container.clientHeight, 0.5, 750);
     cameraRef.current = camera;
 
     // 3. Post-Processing Pipeline with WebGL2 Hardware Multisampling (MSAA) for crisp anti-aliasing
@@ -191,24 +193,30 @@ export const RoadsterGame: React.FC = () => {
 
     const bloomPass = new UnrealBloomPass(
       new THREE.Vector2(256, 256),
-      0.85,
-      0.3,
+      0.65,
+      0.28,
       1.4
     );
     composer.addPass(bloomPass);
     composer.addPass(new OutputPass());
 
-    // 4. Exact flowing.to Environment & Lighting Setup
+    // 4. Photorealistic Proving Ground Environment & Lighting Setup
     const pmrem = new THREE.PMREMGenerator(renderer);
     const envTex = pmrem.fromScene(new THREE.Scene(), 0.04).texture;
     pmrem.dispose();
     scene.environment = envTex;
-    scene.environmentIntensity = 0.28;
+    scene.environmentIntensity = 0.35;
 
-    const ambientLight = new THREE.HemisphereLight('#b2bac8', '#0b0e14', 0.42);
+    // Balanced ambient light preserving rich metallic shadows
+    const ambientLight = new THREE.HemisphereLight('#cbd5e1', '#1e2535', 0.85);
     scene.add(ambientLight);
 
-    const rampSpot = new THREE.SpotLight('#e8eef5', 420, 0, 0.62, 1, 1.4);
+    // Proving Ground directional floodlight fill for crisp automotive body highlights
+    const moonLight = new THREE.DirectionalLight('#cbd5e1', 0.75);
+    moonLight.position.set(-60, 45, 30);
+    scene.add(moonLight);
+
+    const rampSpot = new THREE.SpotLight('#f1f5f9', 380, 0, 0.68, 0.9, 1.3);
     rampSpot.position.set(-26, 36, 26);
     rampSpot.target.position.set(3, 9, 0);
     rampSpot.castShadow = true;
@@ -219,15 +227,15 @@ export const RoadsterGame: React.FC = () => {
     rampSpot.shadow.normalBias = 0.04;
     scene.add(rampSpot, rampSpot.target);
 
-    // Runway & Obstacle Floodlight rig (originating from 26m lamp post at x: -118)
-    const runwaySpot = new THREE.SpotLight('#e8eef5', 450, 0, 0.65, 1, 1.4);
-    runwaySpot.position.set(-118, 25.1, 6.5);
+    // Runway & Obstacle Floodlight rig (originating from 19m lamp mast at x: -118)
+    const runwaySpot = new THREE.SpotLight('#fef3c7', 480, 0, 1.05, 0.85, 1.2);
+    runwaySpot.position.set(-118, 18.2, 5.5);
     runwaySpot.target.position.set(-106, 0, 0);
     scene.add(runwaySpot, runwaySpot.target);
 
-    // Jump Mode Start Grid Floodlight (originating from 26m lamp post at x: -174)
-    const jumpStartSpot = new THREE.SpotLight('#e8eef5', 450, 0, 0.65, 1, 1.4);
-    jumpStartSpot.position.set(-174, 25.1, 6.5);
+    // Jump Mode Start Grid Floodlight (originating from 19m lamp mast at x: -174)
+    const jumpStartSpot = new THREE.SpotLight('#fef3c7', 480, 0, 1.05, 0.85, 1.2);
+    jumpStartSpot.position.set(-174, 18.2, 5.5);
     jumpStartSpot.target.position.set(-176, 0, 0);
     scene.add(jumpStartSpot, jumpStartSpot.target);
 
@@ -240,7 +248,14 @@ export const RoadsterGame: React.FC = () => {
     scene.add(pointLight);
     pointLightRef.current = pointLight;
 
-    // 5. Environment & Track
+    // Tesla Roadster Forward Projector Headlights casting onto tarmac ahead
+    const headlightSpot = new THREE.SpotLight('#f1f5f9', 65, 36, 0.44, 0.75, 1.2);
+    scene.add(headlightSpot, headlightSpot.target);
+
+    // 5. Environment, Sky & Track Setup
+    const skyEnvObj = createSkyAndEnvironment();
+    scene.add(skyEnvObj.group);
+
     const path = new RampPath({
       runIn: settings.runIn,
       r1: settings.r1,
@@ -275,7 +290,7 @@ export const RoadsterGame: React.FC = () => {
     scene.add(particles.points);
 
     // 8. Authentic 3D Roadster Model from flowing.to
-    const initialCar = createProceduralTeslaRoadster(settings.bodyColor);
+    const initialCar = createProceduralTeslaRoadster(settingsRef.current.bodyColor);
     carRef.current = initialCar;
     scene.add(initialCar.group);
 
@@ -286,11 +301,13 @@ export const RoadsterGame: React.FC = () => {
         scene.remove(initialCar.group);
         initialCar.dispose();
         carRef.current = glbCar;
+        glbCar.setPaintColor(settingsRef.current.bodyColor);
         scene.add(glbCar.group);
       },
       () => {
         // Keeps procedural fallback
-      }
+      },
+      settingsRef.current.bodyColor
     );
 
     // 9. Responsive Resize Handler (Ensures Crisp Rendering on Mobile & Desktop)
@@ -396,8 +413,19 @@ export const RoadsterGame: React.FC = () => {
       }
     };
 
+    const handleBlur = () => {
+      inputsRef.current.forward = false;
+      inputsRef.current.back = false;
+      inputsRef.current.lift = false;
+      inputsRef.current.boost = false;
+      inputsRef.current.reverseBoost = false;
+      inputsRef.current.ccw = false;
+      inputsRef.current.cw = false;
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
 
     // 12. Main 60-120FPS Animation & Physics Loop
     let lastTime = performance.now();
@@ -409,7 +437,15 @@ export const RoadsterGame: React.FC = () => {
       const dt = Math.min((currentTime - lastTime) / 1000, 0.1);
       lastTime = currentTime;
 
-      // Gamepad API Polling
+      // Gamepad API Polling (Stateless per-frame evaluation to prevent stick drift latching)
+      let gpForward = false;
+      let gpBack = false;
+      let gpLift = false;
+      let gpBoost = false;
+      let gpReverseBoost = false;
+      let gpCcw = false;
+      let gpCw = false;
+
       if (navigator.getGamepads) {
         const gamepads = navigator.getGamepads();
         const gp = gamepads[0];
@@ -417,33 +453,33 @@ export const RoadsterGame: React.FC = () => {
           const rightTrigger = gp.buttons[7]?.value || 0;
           const leftTrigger = gp.buttons[6]?.value || 0;
           const leftStickX = gp.axes[0] || 0;
-          if (rightTrigger > 0.1) inputsRef.current.forward = true;
-          if (leftTrigger > 0.1) inputsRef.current.back = true;
-          if (gp.buttons[0]?.pressed) inputsRef.current.lift = true; // A button
-          if (gp.buttons[5]?.pressed) inputsRef.current.boost = true; // RB
+          if (rightTrigger > 0.1) gpForward = true;
+          if (leftTrigger > 0.1) gpBack = true;
+          if (gp.buttons[0]?.pressed) gpLift = true; // A button
+          if (gp.buttons[5]?.pressed) gpBoost = true; // RB
           if (leftStickX < -0.3) {
-            inputsRef.current.ccw = true;
-            inputsRef.current.reverseBoost = true;
+            gpCcw = true;
+            gpReverseBoost = true;
           }
           if (leftStickX > 0.3) {
-            inputsRef.current.cw = true;
-            inputsRef.current.boost = true;
+            gpCw = true;
+            gpBoost = true;
           }
         }
       }
 
       // Map Inputs to Physics Simulation
       let driveInput = 0;
-      if (inputsRef.current.forward) driveInput += 1;
-      if (inputsRef.current.back) driveInput -= 1;
+      if (inputsRef.current.forward || gpForward) driveInput += 1;
+      if (inputsRef.current.back || gpBack) driveInput -= 1;
       simulation.drive = driveInput;
-      simulation.lift = inputsRef.current.lift;
-      simulation.boost = inputsRef.current.boost;
-      simulation.reverseBoost = inputsRef.current.reverseBoost || false;
+      simulation.lift = Boolean(inputsRef.current.lift || gpLift);
+      simulation.boost = Boolean(inputsRef.current.boost || gpBoost);
+      simulation.reverseBoost = Boolean(inputsRef.current.reverseBoost || gpReverseBoost);
 
       let turnInput = 0;
-      if (inputsRef.current.ccw) turnInput += 1; // Counter-clockwise flip
-      if (inputsRef.current.cw) turnInput -= 1;  // Clockwise flip
+      if (inputsRef.current.ccw || gpCcw) turnInput += 1; // Counter-clockwise flip
+      if (inputsRef.current.cw || gpCw) turnInput -= 1;  // Clockwise flip
       simulation.turn = turnInput;
 
       // Tick Fixed 120Hz Physics
@@ -474,25 +510,31 @@ export const RoadsterGame: React.FC = () => {
           car.setBraking(simulation.drive < 0 || simulation.reversing);
         }
 
-        // Emit SpaceX Cold Gas Particles
+        // Update Tesla Roadster projector headlights illuminating the asphalt ahead
+        const noseOffset = new THREE.Vector3(2.1, 0.35, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), simulation.angle);
+        const forwardDir = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), simulation.angle);
+        headlightSpot.position.copy(car.group.position).add(noseOffset);
+        headlightSpot.target.position.copy(headlightSpot.position).add(forwardDir.clone().multiplyScalar(16)).add(new THREE.Vector3(0, -0.35, 0));
+
+        // Emit SpaceX Cold Gas Particles (Realistic cryogenic vapor plume)
         if (simulation.lifting) {
           const downDir = new THREE.Vector3(0, -1, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), simulation.angle);
           const carVel = new THREE.Vector3(simulation.vx, simulation.vy, 0);
-          particles.emitGas(car.group.position, downDir, carVel, 6, 1.2);
+          particles.emitGas(car.group.position, downDir, carVel, 3, 1.0);
         }
         if (simulation.boosting) {
-          // Single rear SpaceX booster: emits gas backwards (-X relative to car body)
+          // Single rear SpaceX booster: emits cold gas backwards (-X relative to car body)
           const tailDir = new THREE.Vector3(-1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), simulation.angle);
           const carVel = new THREE.Vector3(simulation.vx, simulation.vy, 0);
           const rearPos = new THREE.Vector3(-2.24, 0.35, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), simulation.angle).add(car.group.position);
-          particles.emitGas(rearPos, tailDir, carVel, 10, 1.6);
+          particles.emitGas(rearPos, tailDir, carVel, 4, 1.0);
         }
         if (simulation.reversing) {
-          // Front nose reverse booster: emits gas forwards (+X relative to car body)
+          // Front nose reverse booster: emits cold gas forwards (+X relative to car body)
           const noseDir = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), simulation.angle);
           const carVel = new THREE.Vector3(simulation.vx, simulation.vy, 0);
           const frontPos = new THREE.Vector3(2.15, 0.32, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), simulation.angle).add(car.group.position);
-          particles.emitGas(frontPos, noseDir, carVel, 10, 1.6);
+          particles.emitGas(frontPos, noseDir, carVel, 4, 1.0);
         }
       }
 
@@ -565,7 +607,7 @@ export const RoadsterGame: React.FC = () => {
         camera.lookAt(targetX, targetY, 0);
       } else if (mode === 'Ground') {
         // Ground Spectator Telephoto View at Landing Zone
-        const spectatorX = simulation.challenge === 'jump' ? settings.jumpZoneX + 12 : settings.zoneX + 8;
+        const spectatorX = simulation.challenge === 'jump' ? settingsRef.current.jumpZoneX + 12 : settingsRef.current.zoneX + 8;
         camera.position.set(spectatorX, 1.2, 14);
         camera.lookAt(targetX, targetY, 0);
       }
@@ -584,6 +626,9 @@ export const RoadsterGame: React.FC = () => {
         (scene.fog as THREE.FogExp2).density = 0.0035 * Math.max(0.35, Math.min(1.0, 45.0 / Math.max(1.0, camDist)));
       }
 
+      // Update distant aviation warning beacons
+      skyEnvObj.update(currentTime * 0.001);
+
       // Render Scene with Bloom Post-processing
       composer.render();
 
@@ -595,7 +640,7 @@ export const RoadsterGame: React.FC = () => {
           gForce: simulation.gForce,
           tilt: (180 * Math.abs(Math.atan2(Math.sin(simulation.angle), Math.cos(simulation.angle)))) / Math.PI,
           gas: simulation.gas,
-          gasMax: settings.gas,
+          gasMax: settingsRef.current.gas,
           mode: simulation.mode,
           suction: simulation.suction,
           lifting: simulation.lifting,
@@ -617,19 +662,23 @@ export const RoadsterGame: React.FC = () => {
       window.removeEventListener('pointerup', handlePointerUp);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
       rampMeshObj.dispose();
       runwayObj.dispose();
       obstaclesObj.dispose();
+      skyEnvObj.dispose();
       particles.dispose();
       sound.dispose();
+      headlightSpot.dispose();
       renderer.dispose();
     };
-  }, [settings, restart, bestScore, handleToggleView]);
+  }, [restart, bestScore, handleToggleView]);
 
   // Synchronize Settings Updates to Live Simulation and Car
   const handleUpdateSettings = useCallback((newSettings: Partial<GameSettings>) => {
     setSettings(prev => {
       const updated = { ...prev, ...newSettings };
+      settingsRef.current = updated;
       if (simRef.current) simRef.current.setSettings(updated);
       if (carRef.current && newSettings.bodyColor) {
         carRef.current.setPaintColor(newSettings.bodyColor);
